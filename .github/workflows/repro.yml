@@ -3,8 +3,8 @@ name: repro
 # Builds @blockchaincommons/components from this repo and branch, packs it the way `npm publish` would,
 # then installs the tarball as a dependency, with and without Bun.
 env:
-  COMPONENTS_REPO: BlockchainCommons/bc-components-ts
-  COMPONENTS_REF: master
+  COMPONENTS_REPO: gobengo/bc-components-ts
+  COMPONENTS_REF: fix-bun-issue
 
 on:
   push:
