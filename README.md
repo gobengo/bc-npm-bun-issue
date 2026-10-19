@@ -1,33 +1,28 @@
-# Repro: `@blockchaincommons/*` packages can't be installed
+# Repro: npm can't install `@blockchaincommons/components` on a host with no `bun`
 
-`npm install @blockchaincommons/envelope@1.0.0-beta.4` fails. The cause is the `postinstall` that most `@blockchaincommons/*` packages declare:
+`@blockchaincommons/components@1.0.0-beta.4` runs Bun in its npm `postinstall`:
 
 ```json
 "postinstall": "bun scripts/pin-lint-typescript.ts"
 ```
 
-`scripts/` isn't in the published package (`files` is `["dist", "src", …]`), and npm runs `postinstall` for every consumer.
+npm runs `postinstall` for everyone who installs the package. Without Bun it fails with `sh: 1: bun: not found`. With Bun it fails with `Module not found "scripts/pin-lint-typescript.ts"`, because `scripts/` isn't published.
 
-Affected (as installed by `envelope@1.0.0-beta.4`): `components@1.0.0-beta.4`, `envelope@1.0.0-beta.4`, `known-values@1.0.0-beta.4`, and `crypto`, `dcbor`, `rand`, `shamir`, `sskr`, `tags`, `uniform-resources` at `1.0.0-beta.3`. `xid` and `provenance-mark` don't declare it.
+Locally:
+
+```sh
+npm install @blockchaincommons/components   # fails
+```
 
 ## The workflow
 
-[`.github/workflows/repro.yml`](.github/workflows/repro.yml) runs on every push:
+[`.github/workflows/repro.yml`](.github/workflows/repro.yml) builds the package from `COMPONENTS_REPO` at `COMPONENTS_REF`, packs it as `npm publish` would, and installs the tarball without Bun and with Bun.
 
-| Job | Result | Error |
+| Branch | Builds | Result |
 | --- | --- | --- |
-| `install-without-bun` | fails | `sh: 1: bun: not found` |
-| `install-with-bun` | fails | `error: Module not found "scripts/pin-lint-typescript.ts"` |
-| `install-ignore-scripts` | passes | lists each package's postinstall, then runs `smoke.mjs` |
+| `main` | `BlockchainCommons/bc-components-ts` @ `master` | both installs fail |
+| `suggested-fix` | `gobengo/bc-components-ts` @ `fix-bun-issue` (`postinstall` → `prepare`) | both installs pass |
 
-## Locally
+The two branches differ only in those two lines.
 
-```sh
-npm install                   # fails
-npm install --ignore-scripts  # works
-node smoke.mjs
-```
-
-## Suggested fix
-
-Move the script to `prepare`, which doesn't run for registry installs, or drop it from the published `package.json`.
+**Why `--ignore-scripts` and then `npm rebuild`:** the package's own dependencies (`crypto`, `dcbor`, `rand`, `sskr`, `tags`, `uniform-resources`) come from npm, and their published versions have the same `postinstall`. Installing with `--ignore-scripts` and then running `npm rebuild @blockchaincommons/components` runs only this package's install scripts, which is the part the fix changes. Once the other packages make the same change, a plain `npm install` works.

@@ -1,24 +1,61 @@
 name: repro
 
+# Builds @blockchaincommons/components from this repo and branch, packs it the way `npm publish` would,
+# then installs the tarball as a dependency, with and without Bun.
+env:
+  COMPONENTS_REPO: BlockchainCommons/bc-components-ts
+  COMPONENTS_REF: master
+
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  # Fails: npm runs each package's postinstall, `bun scripts/pin-lint-typescript.ts`, and Bun isn't installed.
-  # Expected error: "sh: 1: bun: not found"
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.COMPONENTS_REPO }}
+          ref: ${{ env.COMPONENTS_REF }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: npm pack --pack-destination "$RUNNER_TEMP" && mv "$RUNNER_TEMP"/blockchaincommons-components-*.tgz components.tgz
+      - name: The packed package's install scripts
+        run: |
+          tar -xzOf components.tgz package/package.json | node -e "const s=JSON.parse(require('fs').readFileSync(0,'utf8')).scripts; console.log({ postinstall: s.postinstall, prepare: s.prepare })"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: components
+          path: components.tgz
+
+  # Its dependencies (crypto, dcbor, rand, sskr, tags, uniform-resources) are installed from npm, and their
+  # published versions have the same postinstall. So they're installed with --ignore-scripts, and
+  # `npm rebuild` then runs only this package's own install scripts, as a plain `npm install` would.
   install-without-bun:
+    needs: pack
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install
+      - uses: actions/download-artifact@v4
+        with:
+          name: components
+      - name: Bun isn't installed
+        run: "! command -v bun"
+      - run: npm install --ignore-scripts ./components.tgz
+      - run: npm rebuild @blockchaincommons/components
+      - run: node smoke.mjs
 
-  # Fails: with Bun installed, the script itself is missing from the published package.
-  # Expected error: error: Module not found "scripts/pin-lint-typescript.ts"
   install-with-bun:
+    needs: pack
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,20 +63,9 @@ jobs:
         with:
           node-version: 22
       - uses: oven-sh/setup-bun@v2
-      - run: npm install
-
-  # Passes: the workaround, then a smoke test that the libraries work.
-  install-ignore-scripts:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
-      - run: npm install --ignore-scripts
-      - name: Which published packages declare the missing postinstall
-        run: |
-          for d in node_modules/@blockchaincommons/*; do
-            node -e "const p=require('./$d/package.json'); const s=(p.scripts||{}).postinstall; console.log(p.name+'@'+p.version, s ? 'postinstall: '+s : '-', require('fs').existsSync('$d/scripts') ? '' : '(no scripts/ published)')"
-          done
+          name: components
+      - run: npm install --ignore-scripts ./components.tgz
+      - run: npm rebuild @blockchaincommons/components
       - run: node smoke.mjs
