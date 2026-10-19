@@ -1,0 +1,45 @@
+name: repro
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  # Fails: npm runs each package's postinstall, `bun scripts/pin-lint-typescript.ts`, and Bun isn't installed.
+  # Expected error: "sh: 1: bun: not found"
+  install-without-bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+  # Fails: with Bun installed, the script itself is missing from the published package.
+  # Expected error: error: Module not found "scripts/pin-lint-typescript.ts"
+  install-with-bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: npm install
+
+  # Passes: the workaround, then a smoke test that the libraries work.
+  install-ignore-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - name: Which published packages declare the missing postinstall
+        run: |
+          for d in node_modules/@blockchaincommons/*; do
+            node -e "const p=require('./$d/package.json'); const s=(p.scripts||{}).postinstall; console.log(p.name+'@'+p.version, s ? 'postinstall: '+s : '-', require('fs').existsSync('$d/scripts') ? '' : '(no scripts/ published)')"
+          done
+      - run: node smoke.mjs

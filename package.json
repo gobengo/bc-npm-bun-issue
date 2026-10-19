@@ -1,0 +1,9 @@
+{
+  "name": "reproduce-blockchaincommons-postinstall",
+  "private": true,
+  "type": "module",
+  "description": "@blockchaincommons/* packages fail to install: postinstall runs scripts/pin-lint-typescript.ts, which isn't published",
+  "dependencies": {
+    "@blockchaincommons/envelope": "1.0.0-beta.4"
+  }
+}
